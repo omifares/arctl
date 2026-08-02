@@ -1,7 +1,11 @@
 [package]
-name = "akko_wallust"
+name = "akko_rgb"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.5", features = ["derive"] }
 hidapi = "2.6.6"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = "1.1.4"
