@@ -78,8 +78,8 @@ fn main() -> Result<()> {
     let target_path = api
         .device_list()
         .find_map(|dev| {
-            if dev.vendor_id() == hw_config.device.vendor_id
-                && dev.product_id() == hw_config.device.product_id
+            if dev.vendor_id() == u16::from(hw_config.device.vendor_id)
+                && dev.product_id() == u16::from(hw_config.device.product_id)
             {
                 let intf = dev.interface_number();
                 if intf == 1 || intf == 2 || dev.usage_page() == 0xFF00 {

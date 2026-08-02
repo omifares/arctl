@@ -1,14 +1,15 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-fn default_vendor() -> u16 {
-    0x3151
+fn default_vendor() -> HexU16 {
+    HexU16(0x3151)
 }
-fn default_product() -> u16 {
-    0x502d
+
+fn default_product() -> HexU16 {
+    HexU16(0x502d)
 }
 
 fn default_modifiers() -> Vec<String> {
@@ -133,7 +134,48 @@ fn default_key_map() -> HashMap<String, usize> {
     map
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HexU16(pub u16);
+
+impl Serialize for HexU16 {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("0x{:04x}", self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for HexU16 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+
+        let value = if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            u16::from_str_radix(hex, 16)
+        } else {
+            s.parse::<u16>()
+        };
+
+        value.map(HexU16).map_err(serde::de::Error::custom)
+    }
+}
+
+impl From<u16> for HexU16 {
+    fn from(value: u16) -> Self {
+        HexU16(value)
+    }
+}
+
+impl From<HexU16> for u16 {
+    fn from(value: HexU16) -> Self {
+        value.0
+    }
+}
+
+#[derive(Deserialize, Serialize)]
 pub struct HardwareConfig {
     #[serde(default)]
     pub device: Device,
@@ -143,22 +185,41 @@ pub struct HardwareConfig {
     pub key_map: HashMap<String, usize>,
 }
 
-#[derive(Deserialize, Default)]
-pub struct Device {
-    #[serde(default = "default_vendor")]
-    pub vendor_id: u16,
-    #[serde(default = "default_product")]
-    pub product_id: u16,
+impl Default for HardwareConfig {
+    fn default() -> Self {
+        Self {
+            device: Device::default(),
+            modifiers_list: default_modifiers(),
+            key_map: default_key_map(),
+        }
+    }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Serialize)]
+pub struct Device {
+    #[serde(default = "default_vendor")]
+    pub vendor_id: HexU16,
+    #[serde(default = "default_product")]
+    pub product_id: HexU16,
+}
+
+impl Default for Device {
+    fn default() -> Self {
+        Self {
+            vendor_id: default_vendor(),
+            product_id: default_product(),
+        }
+    }
+}
+
+#[derive(Deserialize, Serialize, Default)]
 pub struct ColorsConfig {
     #[serde(default)]
     pub colors: Colors,
     pub overrides: Option<HashMap<String, String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Colors {
     #[serde(default = "default_base_color")]
     pub base: String,
@@ -191,26 +252,22 @@ pub fn load_configurations(config_dir: &Path) -> Result<(HardwareConfig, ColorsC
     let hw_path = config_dir.join("config.toml");
     let colors_path = config_dir.join("colors.toml");
 
-    let hw_config = if hw_path.exists() {
-        let content =
-            fs::read_to_string(&hw_path).with_context(|| format!("Fail to read {:?}", hw_path))?;
-        toml::from_str(&content).context("Fail to parse config.toml (invalid syntax)")?
-    } else {
-        let default_hw = HardwareConfig {
-            device: Device::default(),
-            modifiers_list: default_modifiers(),
-            key_map: default_key_map(),
-        };
-        default_hw
-    };
-
-    let colors_config = if colors_path.exists() {
-        let content = fs::read_to_string(&colors_path)
-            .with_context(|| format!("Fail to read {:?}", colors_path))?;
-        toml::from_str(&content).context("Fail to parse colors.toml (invalid syntax)")?
-    } else {
-        ColorsConfig::default()
-    };
+    let hw_config: HardwareConfig = load_or_create(&hw_path)?;
+    let colors_config: ColorsConfig = load_or_create(&colors_path)?;
 
     Ok((hw_config, colors_config))
+}
+
+fn load_or_create<T>(path: &Path) -> Result<T>
+where
+    T: Serialize + for<'de> Deserialize<'de> + Default,
+{
+    if path.exists() {
+        let content = fs::read_to_string(path)?;
+        Ok(toml::from_str(&content)?)
+    } else {
+        let config = T::default();
+        fs::write(path, toml::to_string_pretty(&config)?)?;
+        Ok(config)
+    }
 }
