@@ -8,7 +8,7 @@ fn default_vendor() -> u16 {
     0x3151
 }
 fn default_product() -> u16 {
-    0x4015
+    0x502d
 }
 
 fn default_modifiers() -> Vec<String> {
